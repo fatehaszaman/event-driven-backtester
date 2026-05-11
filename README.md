@@ -1,5 +1,7 @@
 # High-Fidelity Event-Driven Backtester
 
+[![CI](https://github.com/fatehaszaman/event-driven-backtester/actions/workflows/ci.yml/badge.svg)](https://github.com/fatehaszaman/event-driven-backtester/actions/workflows/ci.yml)
+
 ### Discrete-Event Simulation for Systematic Strategies
 
 This engine is built around the "speed vs. realism" trade-off that most
