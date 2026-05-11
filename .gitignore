@@ -1,11 +1,52 @@
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
 *.egg-info/
+*.egg
 dist/
 build/
+.eggs/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Virtualenvs
 .env
 .venv/
 venv/
+env/
+ENV/
+
+# Editors / IDEs
 .idea/
 .vscode/
 *.iml
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Local data / outputs
+data/
+*.parquet
+*.csv.gz
+*.h5
+*.pkl
+outputs/
+results/
+*.log

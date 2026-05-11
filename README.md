@@ -1,100 +1,160 @@
-# Event-Driven Backtesting Engine
+# High-Fidelity Event-Driven Backtester
 
-A Python backtesting engine built around an event-driven architecture -- the same design pattern used in production trading systems. Strategies, execution logic, and data feeds are fully decoupled, so the same strategy code runs identically in backtesting and live trading.
+### Discrete-Event Simulation for Systematic Strategies
 
-## Why event-driven?
+This engine is built around the "speed vs. realism" trade-off that most
+Python backtesters silently lose. Vectorized frameworks compute P&L by
+broadcasting NumPy operations across an entire price series at once.
+That is fast, but it leaks information across bars — strategies end up
+trading on prices and statistics they could not have seen at decision
+time, and execution costs (spread, partial fills, rejections) are either
+ignored or bolted on after the fact.
 
-Most backtesting frameworks process data in vectorized batches. Fast, but it introduces look-ahead bias and makes it impossible to model realistic execution. Partial fills, order sequencing, and latency all require per-event state.
-
-This engine processes one bar at a time through an event queue:
+This engine instead processes one bar at a time through an explicit
+event queue, using a discrete-event simulation (DES) model that mirrors
+the architecture of a production trading system. The same strategy
+code runs identically in backtest and live trading — only the data
+feed and fill simulator are swapped.
 
 ```
 MarketEvent -> Strategy -> SignalEvent -> PositionSizer -> OrderEvent -> FillSimulator -> FillEvent -> Portfolio
 ```
 
-Signals generated on bar N are filled on bar N+1 (next-bar execution). No look-ahead, no free fills at close.
+Signals generated on bar `N` are filled on bar `N+1` (next-bar
+execution). No look-ahead, no free fills at the close.
 
-## Components
+---
 
-### `backtest/data_feed.py` -- Data Feed
+## Performance
 
-Generates `MarketEvent` objects from historical OHLCV data. Handles multi-symbol timestamp alignment (LOCF for missing bars) and synthesizes bid/ask spreads when not present in source data.
+The engine is pure Python on top of NumPy and pandas. Hot paths (synthetic
+data generation, equity-curve analytics, market-impact math) are
+vectorized through NumPy; the event loop itself is intentionally
+imperative, because per-event state is what gives the simulation its
+realism.
 
-Includes a synthetic data generator (GBM price paths with realistic spread and volume profiles) for testing.
+Reproducible numbers on a single CPU core, `python 3.12`, no GPU and no
+external services. Each row runs the full mean-reversion strategy
+end-to-end (signal generation, sizing, fill simulation, mark-to-market,
+analytics):
 
-### `backtest/fill_simulator.py` -- Fill Simulator
+| Bars  | Instruments | Wall time | Market events / s | Symbol-bars / s | Peak RSS |
+|-------|-------------|-----------|-------------------|-----------------|----------|
+|   500 | 3           | 0.40 s    | 1,258             | 3,774           | 71 MiB   |
+| 2,000 | 5           | 1.98 s    | 1,008             | 5,041           | 80 MiB   |
+| 5,000 | 10          | 8.35 s    | 599               | 5,990           | 117 MiB  |
 
-Models the key sources of execution cost and constraint:
+> Reproduce with `python scripts/bench.py`. These are real measurements
+> from this repo, not headline numbers from a different system.
+> Throughput here is dominated by the per-bar DataFrame slicing inside
+> the data feed and the Python-level event dispatch — both deliberate
+> choices in favor of clarity over raw ticks/sec.
 
-| Feature | Description |
-|---|---|
-| Bid/ask spread | Buys fill at ask, sells at bid |
-| Market impact | Price moves against order proportional to volume participation |
-| Partial fills | Orders exceeding `max_volume_pct` of bar volume are partially filled |
-| Wide-spread rejection | Orders rejected when spread exceeds configurable threshold |
-| Limit order logic | Limit price checked against bar bid/ask before filling |
+### Hardening roadmap (next steps, not current claims)
 
-### `backtest/portfolio.py` -- Portfolio Tracker
+Things I would build next if pushing this toward production-grade
+throughput, and which are explicitly **not** in the repo today:
 
-Maintains cash balance, open positions (average entry price, realized/unrealized P&L), and a full trade log. Produces an equity curve with per-bar snapshots.
+- **NumPy-native data feed**: replace the per-timestamp `DataFrame`
+  filter with column-array slicing to eliminate the dominant bottleneck.
+  Target: 50–100x throughput on the same hardware.
+- **Numba / Cython JIT on the fill simulator**: the market-impact and
+  spread math is a tight numeric kernel and a natural fit for JIT.
+- **C++ event-loop core** with a thin Python binding (pybind11) for
+  cases where 10⁵+ events/sec are needed (intraday tick data,
+  agent-based simulations).
+- **State snapshots / deterministic replay**: serialize portfolio +
+  strategy + RNG state between bars to enable bit-exact replay from any
+  point. The architecture already supports this — the engine is purely
+  a function of the prior state plus the next event — but it is not
+  yet wired up.
 
-### `backtest/strategy.py` -- Strategy Interface
+---
 
-`BaseStrategy` defines the interface all strategies implement. Strategies call `self.signal()` to emit `SignalEvent` objects, isolated from order sizing and execution concerns.
+## Architecture
 
-### `backtest/engine.py` -- Backtest Runner
+### Event types ([`backtest/events.py`](backtest/events.py))
 
-Drives the event loop, connects all components, and returns performance metrics. The `PositionSizer` converts signal strength to order quantity using fixed fractional sizing.
+Five concrete event dataclasses (`Bar`, `MarketEvent`, `SignalEvent`,
+`OrderEvent`, `FillEvent`) form the simulation's vocabulary. Every
+piece of state that crosses a component boundary is an immutable event
+— this is what makes the same code reusable in live trading and what
+makes the system amenable to snapshot-based replay.
 
-### `backtest/analytics.py` -- Performance Analytics
+### Microstructure realism ([`backtest/fill_simulator.py`](backtest/fill_simulator.py))
 
-Computes standard metrics from the equity curve and trade history:
-- Total return, CAGR
-- Sharpe, Sortino, Calmar ratios
+The fill simulator models the execution frictions that determine
+whether a strategy is actually tradable:
+
+| Feature                | Behavior                                                                                |
+|------------------------|------------------------------------------------------------------------------------------|
+| Bid/ask crossing       | Buys fill at the ask, sells fill at the bid                                              |
+| Linear market impact   | Fill price moves against the order, proportional to volume participation                 |
+| Partial fills          | Orders exceeding `max_volume_pct` of bar volume are partially filled (or rejected)       |
+| Wide-spread rejection  | Orders rejected when `spread / mid` exceeds a configurable threshold (thin-book guard)   |
+| Limit-order semantics  | Limits checked against bar bid/ask before any fill — no peeking at the next bar         |
+| Commission             | Linear in notional, configurable per venue                                               |
+
+Bid/ask are taken from the source data when present and synthesized
+from a configurable spread model otherwise — this lets the same engine
+consume daily OHLCV, hourly data with a spread overlay, or true L1
+quotes without changing the rest of the system.
+
+### Deterministic execution ([`backtest/engine.py`](backtest/engine.py), [`backtest/data_feed.py`](backtest/data_feed.py))
+
+- Event order is fixed: fills from the previous bar settle first,
+  then mark-to-market, then strategy, then order generation.
+- Multi-symbol timestamp alignment uses last-observation-carried-forward
+  (LOCF) so strategies always see a consistent cross-sectional snapshot.
+- Synthetic data generation accepts an explicit RNG seed — given the
+  same seed and inputs, the engine produces identical equity curves and
+  trade logs across runs.
+
+### Portfolio & analytics ([`backtest/portfolio.py`](backtest/portfolio.py), [`backtest/analytics.py`](backtest/analytics.py))
+
+The portfolio tracks cash, per-symbol positions (average entry,
+realized/unrealized P&L), and a full trade log. Per-bar snapshots feed
+the equity curve. Analytics computes the standard set:
+
+- Total return, CAGR, annualized volatility
+- Sharpe, Sortino, Calmar
 - Max drawdown and drawdown duration
-- Win rate, profit factor
-- Commission and slippage breakdown
+- Win rate, profit factor, average win/loss
+- Commission and slippage broken out separately, so you can see how
+  much of a loss comes from market direction versus pure execution
+  friction
 
-## Example Strategy
+### Strategy interface ([`backtest/strategy.py`](backtest/strategy.py))
 
-`strategies/mean_reversion.py` implements a mean-reversion strategy with volatility regime gating:
+`BaseStrategy` is intentionally small: subclass it, implement
+`on_bar`, and call `self.signal(...)` to emit signals. Sizing and
+execution are not the strategy's concern. The included
+[`strategies/mean_reversion.py`](strategies/mean_reversion.py)
+demonstrates a real strategy on top of the interface: z-score entry/exit
+bands plus a realized-vol regime gate that suppresses entries when
+volatility is elevated relative to its rolling average.
 
-1. **Z-score**: price relative to a rolling fair-value band (rolling mean +/- rolling std)
-2. **Entry**: z-score crosses entry threshold, signal in the direction of reversion
-3. **Exit**: z-score reverts to within the exit band
-4. **Vol regime gate**: when realized vol exceeds its rolling average by a configurable factor, entry signals are suppressed. Mean-reversion is unreliable in trending or high-vol conditions.
+---
 
-## Quickstart
+## How to run
 
 ```bash
-pip install -r requirements.txt
-python examples/demo.py
+pip install -r requirements.txt   # pandas, numpy
+python examples/demo.py           # 2-year, 3-instrument backtest with full report
 ```
 
-The demo runs a 2-year backtest across three synthetic instruments and prints a full performance report.
+The demo prints the data summary, a per-100-bar equity ticker, the
+performance report, and a per-instrument trade breakdown.
 
-## Project Structure
+To reproduce the performance table above:
 
-```
-backtest_engine/
-├── backtest/
-│   ├── events.py           # Core event types
-│   ├── data_feed.py        # Historical data feed + synthetic generator
-│   ├── fill_simulator.py   # Execution simulator
-│   ├── portfolio.py        # Position tracker and equity curve
-│   ├── strategy.py         # BaseStrategy interface
-│   ├── engine.py           # Backtest runner and position sizer
-│   ├── analytics.py        # Performance metrics
-│   └── __init__.py
-├── strategies/
-│   └── mean_reversion.py   # Mean-reversion + vol regime strategy
-├── examples/
-│   └── demo.py             # End-to-end demo
-├── requirements.txt
-└── README.md
+```bash
+python scripts/bench.py
 ```
 
-## Writing a Custom Strategy
+---
+
+## Writing a custom strategy
 
 ```python
 from backtest import BaseStrategy, MarketEvent, OrderSide
@@ -105,10 +165,39 @@ class MyStrategy(BaseStrategy):
             if symbol not in event.bars:
                 continue
             bar = event.bars[symbol]
-            if some_condition:
+            if some_condition(bar):
                 self.signal(bar.timestamp, symbol, OrderSide.BUY, strength=0.8)
+```
+
+The engine handles sizing, order generation, fills, and accounting.
+The strategy is responsible only for deciding *what direction* to be
+in, at *which bar*, with *what conviction*.
+
+---
+
+## Project structure
+
+```
+event-driven-backtester/
+├── backtest/
+│   ├── events.py           # Core event types
+│   ├── data_feed.py        # Historical data feed + synthetic generator
+│   ├── fill_simulator.py   # Execution simulator
+│   ├── portfolio.py        # Position tracker and equity curve
+│   ├── strategy.py         # BaseStrategy interface
+│   ├── engine.py           # Backtest runner and position sizer
+│   ├── analytics.py        # Performance metrics
+│   └── __init__.py
+├── strategies/
+│   └── mean_reversion.py   # Mean-reversion + vol regime example
+├── examples/
+│   └── demo.py             # End-to-end demo
+├── scripts/
+│   └── bench.py            # Reproduces the performance table
+├── requirements.txt
+└── README.md
 ```
 
 ## Requirements
 
-Python 3.10+, pandas, numpy
+Python 3.10+, pandas, numpy.
