@@ -1,17 +1,17 @@
 # Event-Driven Backtester
 
-A production-grade, discrete-event simulation backtester written in Python. Designed for realistic strategy evaluation with bid/ask spread modeling, market impact, partial fills, and zero look-ahead bias.
+A production-grade, discrete-event simulation backtester written in Python. Built for realistic strategy evaluation with bid/ask spread modeling, market impact, partial fills, and zero look-ahead bias.
 
 ## Features
 
-- **Discrete-event architecture** — clean separation of data, strategy, portfolio, and execution layers
-- **Realistic fill simulation** — bid/ask spreads, slippage, partial fills, and commission modeling
-- **Market impact modeling** — volume-weighted price impact for large orders
-- **Zero look-ahead bias** — strict event ordering guarantees no future data leaks into signals
-- **Multiple data sources** — CSV, Yahoo Finance, and extensible handler interface
-- **Strategy framework** — plug-and-play strategy interface with full portfolio state access
-- **Risk metrics** — Sharpe ratio, max drawdown, CAGR, Calmar ratio, and more
-- **Tearsheet generation** — performance tearsheets with equity curves and drawdown plots
+- **Discrete-event architecture**: clean separation of data, strategy, portfolio, and execution layers
+- **Realistic fill simulation**: bid/ask spreads, slippage, partial fills, and commission modeling
+- **Market impact modeling**: volume-weighted price impact for large orders
+- **Zero look-ahead bias**: strict event ordering with no future data leaking into signals
+- **Multiple data sources**: CSV, Yahoo Finance, and an extensible handler interface
+- **Strategy framework**: plug-and-play strategy interface with full portfolio state access
+- **Risk metrics**: Sharpe ratio, max drawdown, CAGR, Calmar ratio, and more
+- **Tearsheet generation**: performance tearsheets with equity curves and drawdown plots
 
 ## Architecture
 
@@ -63,7 +63,6 @@ from backtest.portfolio import Portfolio
 from backtest.execution import SimulatedExecutionHandler
 from strategies.moving_average import SMACrossoverStrategy
 
-# Configure backtest
 bt = Backtest(
     csv_dir="./data",
     symbol_list=["AAPL"],
@@ -78,7 +77,6 @@ bt = Backtest(
     strategy_params={"short_window": 20, "long_window": 50},
 )
 
-# Run and display results
 bt.run()
 bt.print_performance()
 bt.plot_tearsheet()
@@ -99,7 +97,7 @@ Rank-based momentum strategy that goes long the top decile of performers over a 
 
 | Metric | Description |
 |---|---|
-| Total Return | Cumulative portfolio return over backtest period |
+| Total Return | Cumulative portfolio return over the backtest period |
 | Sharpe Ratio | Annualized risk-adjusted return (252 trading days) |
 | Max Drawdown | Largest peak-to-trough decline in portfolio value |
 | CAGR | Compound annual growth rate |
@@ -121,7 +119,7 @@ All backtest parameters are passed to the `Backtest` constructor. Key parameters
 
 ## Data Format
 
-CSV files should be in the following format (compatible with Yahoo Finance exports):
+CSV files should follow Yahoo Finance export format:
 
 ```
 Date,Open,High,Low,Close,Volume,Adj Close
@@ -138,4 +136,4 @@ Date,Open,High,Low,Close,Volume,Adj Close
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.
