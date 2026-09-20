@@ -17,6 +17,9 @@ class SMACrossoverStrategy:
         self.bought = {s: False for s in self.symbol_list}
 
     def calculate_signals(self, event):
+        # SMA window scan: O(S*W) time, O(W) temporary data, O(S) position state.
+        # Recompute means -> compare -> emit only a position-state transition.
+        # Event queue and retained data history are separate; see docs/ALGORITHM_GUIDE.md.
         for symbol in self.symbol_list:
             bars = self.data_handler.get_latest_bars_values(
                 symbol, "adj close", N=self.long_window

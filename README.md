@@ -1,5 +1,7 @@
 # Event-Driven Backtester
 
+[Algorithm guide: pseudocode, time complexity, and memory](docs/ALGORITHM_GUIDE.md).
+
 A discrete-event backtesting engine in Python. Market, signal, order, and fill
 events flow through a queue, which keeps the data, strategy, portfolio, and
 execution layers genuinely decoupled rather than decoupled in description only.
