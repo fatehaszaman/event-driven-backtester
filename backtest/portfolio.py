@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+
+from backtest.performance import create_sharpe_ratio
 from abc import ABC, abstractmethod
 from backtest.events import OrderEvent
 
@@ -93,7 +95,7 @@ class NaivePortfolio(Portfolio):
         totals = pd.DataFrame(self.all_holdings)["total"]
         total_return = totals.iloc[-1] / self.initial_capital - 1.0
         returns = totals.pct_change().dropna()
-        sharpe = np.sqrt(252) * returns.mean() / returns.std() if returns.std() > 0 else 0.0
+        sharpe = create_sharpe_ratio(returns, periods=252)
         max_dd = ((totals - totals.cummax()) / totals.cummax()).min()
         return [
             ("Total Return", f"{total_return * 100:.2f}%"),

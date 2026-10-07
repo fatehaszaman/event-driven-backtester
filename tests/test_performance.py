@@ -18,42 +18,29 @@ def test_sharpe_matches_hand_computation():
     assert create_sharpe_ratio(r) == pytest.approx(expected)
 
 
-def test_sharpe_guard_catches_only_exactly_zero_volatility():
+def test_sharpe_guard_catches_exactly_zero_volatility():
     """The guard works when the standard deviation is bit-exactly zero."""
     assert create_sharpe_ratio(pd.Series([0.0] * 10)) == 0.0
 
 
-def test_sharpe_explodes_on_near_constant_returns():
-    """DEFECT, HIGH SEVERITY: `if returns.std() == 0` is an exact float
-    comparison and therefore almost never true.
-
-    A constant 1% return series has std = 1.8e-18 rather than 0.0, so the
-    guard is bypassed and the reported Sharpe is ~8.7e16. Any strategy whose
-    returns are constant or near-constant — holding cash, a flat equity curve,
-    a position never traded — prints an astronomically large Sharpe instead of
-    the intended 0.0.
-
-    The fix is a tolerance, not an equality: `if returns.std() < 1e-12`.
-    See KNOWN_ISSUES.md #8.
-    """
-    sharpe = create_sharpe_ratio(pd.Series([0.01] * 10))
-    assert sharpe > 1e15, (
-        "the zero-volatility guard is expected to fail here; if this test "
-        "breaks because a tolerance was introduced, remove it and close #8"
-    )
+def test_sharpe_is_zero_on_near_constant_returns():
+    """Fixed (formerly KNOWN_ISSUES.md #8): a constant 1% return series has
+    std ~1.8e-18 rather than 0.0. The guard now uses a tolerance, so the
+    Sharpe is 0.0 instead of ~8.7e16."""
+    assert create_sharpe_ratio(pd.Series([0.01] * 10)) == 0.0
 
 
-def test_same_guard_flaw_exists_in_portfolio_summary_stats(ramp_prices, events):
-    """The identical pattern appears as `if returns.std() > 0` in
-    NaivePortfolio.output_summary_stats, so the bug has two homes."""
+def test_portfolio_summary_stats_reuses_the_guarded_sharpe(ramp_prices, events):
+    """NaivePortfolio.output_summary_stats used its own `std() > 0` guard,
+    the second home of the #8 defect. It now delegates to
+    create_sharpe_ratio so there is one guarded implementation."""
     import inspect
 
     from backtest.portfolio import NaivePortfolio
 
     src = inspect.getsource(NaivePortfolio.output_summary_stats)
-    assert "returns.std() > 0" in src, (
-        "documents the second occurrence of the float-equality guard flaw"
-    )
+    assert "create_sharpe_ratio(" in src
+    assert "returns.std() > 0" not in src
 
 
 def test_sharpe_sign_follows_mean_return():

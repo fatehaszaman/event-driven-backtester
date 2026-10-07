@@ -6,8 +6,8 @@ A discrete-event backtesting engine in Python. Market, signal, order, and fill
 events flow through a queue, which keeps the data, strategy, portfolio, and
 execution layers genuinely decoupled rather than decoupled in description only.
 
-68 tests. `KNOWN_ISSUES.md` lists ten defects found by writing them, with
-severity and a fix for each.
+68 tests. `KNOWN_ISSUES.md` lists the defects found by writing them, with
+severity and a fix for each: nine open, one fixed.
 
 ## What is actually implemented
 
@@ -110,7 +110,7 @@ strategies/
 examples/
   sma_crossover.py
 tests/               68 tests
-KNOWN_ISSUES.md      ten defects, with severity and fixes
+KNOWN_ISSUES.md      nine open defects and one fixed, with severity and fixes
 ```
 
 ## Testing approach
