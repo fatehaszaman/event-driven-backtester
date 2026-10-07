@@ -10,7 +10,6 @@ more dangerous than one whose failure modes are written down.
 
 | # | Severity | Issue |
 |---|---|---|
-| 8 | **high** | Zero-volatility Sharpe guard never fires |
 | 2 | **high** | Signals fill at the same bar's close (zero latency) |
 | 1 | medium | Extra market event at end of data duplicates the final bar |
 | 7 | medium | CAGR returns nan, or worse than −100%, on blown-up equity |
@@ -22,26 +21,6 @@ more dangerous than one whose failure modes are written down.
 | 6 | low | Sharpe assumes a zero risk-free rate |
 
 ---
-
-### 8. Zero-volatility Sharpe guard never fires — HIGH
-
-`create_sharpe_ratio` guards with `if returns.std() == 0`. That is an exact
-float comparison, and it is almost never true. A constant 1% return series has
-a standard deviation of `1.83e-18`, not `0.0`, so the guard is bypassed and the
-function returns a Sharpe of **8.68e16**.
-
-This fires for any strategy whose returns are constant or near-constant: one
-holding cash, one whose position is never traded, or a flat equity curve. The
-reported figure is not merely wrong, it is spectacular, and a reader skimming a
-tearsheet would see a Sharpe in the quadrillions rather than the intended zero.
-
-`NaivePortfolio.output_summary_stats` contains the same pattern as
-`if returns.std() > 0`, so the defect has two independent homes.
-
-**Fix:** compare against a tolerance, `if returns.std() < 1e-12`, in both
-places.
-Tests: `test_sharpe_explodes_on_near_constant_returns`,
-`test_same_guard_flaw_exists_in_portfolio_summary_stats`
 
 ### 2. Signals fill at the same bar's close — HIGH
 
@@ -156,3 +135,16 @@ assumption rather than a bug, but in a 4–5% rate environment it overstates the
 ratio and the README should say so.
 
 Test: `test_sharpe_assumes_a_zero_risk_free_rate`
+
+---
+
+## Fixed
+
+### 8. Zero-volatility Sharpe guard never fired (fixed)
+
+`create_sharpe_ratio` compared `returns.std() == 0`, so a constant 1% return
+series (std ~1.8e-18) reported a Sharpe of ~8.7e16. It now treats any std below
+`1e-12` as zero volatility, and `NaivePortfolio.output_summary_stats` calls the
+same function instead of keeping its own guard. Tests:
+`test_sharpe_is_zero_on_near_constant_returns`,
+`test_portfolio_summary_stats_reuses_the_guarded_sharpe`.

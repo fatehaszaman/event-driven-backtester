@@ -4,9 +4,15 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 
+# Standard deviations below this are treated as zero volatility. An exact
+# `== 0` check misses floating-point residue (a constant 1% series has
+# std ~1.8e-18), which used to report a Sharpe near 8.7e16.
+ZERO_VOL_TOLERANCE = 1e-12
+
+
 def create_sharpe_ratio(returns, periods=252):
     """Annualized Sharpe ratio. Use periods=252 for daily, 52 for weekly."""
-    if returns.std() == 0:
+    if not returns.std() >= ZERO_VOL_TOLERANCE:  # also catches NaN std
         return 0.0
     return np.sqrt(periods) * returns.mean() / returns.std()
 
