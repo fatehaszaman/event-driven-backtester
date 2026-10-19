@@ -134,17 +134,21 @@ Tests that assert a *defect* say so in the docstring and point at the
 cannot change unnoticed; fixing the bug breaks the test, which is the intended
 signal to delete both.
 
-### Worth knowing about the highest-severity bug
+### Worth knowing about the highest-severity bug (fixed in #8)
 
-`create_sharpe_ratio` guards against division by zero with
+`create_sharpe_ratio` originally guarded against division by zero with
 `if returns.std() == 0`. Exact float equality almost never holds: a constant 1%
-return series has a standard deviation of `1.83e-18`, so the guard is bypassed
-and the function returns a Sharpe of **8.68e16** where it intends to return
-`0.0`. The same pattern appears a second time in
-`NaivePortfolio.output_summary_stats`.
+return series has a standard deviation of `1.83e-18`, so the guard was bypassed
+and the function returned a Sharpe of **8.68e16** where it intended to return
+`0.0`. The same pattern appeared a second time in
+`NaivePortfolio.output_summary_stats`. Both now route through a shared `1e-12`
+near-zero volatility tolerance (`KNOWN_ISSUES.md` #8).
 
 I predicted a different failure mode before running the test, and the real one
-was worse. That is the argument for the test suite, not for my judgement.
+was worse. That is the argument for the test suite, not for my judgement. Along
+with the remaining open entries in `KNOWN_ISSUES.md`, these pinned defects and
+seeded runs also serve as ground-truth test cases for my own LLM-as-a-judge
+code and quantitative review experiments.
 
 ## Data format
 
