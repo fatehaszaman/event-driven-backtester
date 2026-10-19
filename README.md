@@ -28,12 +28,12 @@ the list is kept explicit so nobody has to read the source to find out.
 
 | | |
 |---|---|
-| Bid/ask spread modelling | no — slippage is a single proportional factor |
-| Market impact | no — `execution.py` says so directly |
-| Partial fills | no — every order fills in full |
-| Yahoo Finance or any non-CSV source | no — `CSVDataHandler` only |
+| Bid/ask spread modelling | no - slippage is a single proportional factor |
+| Market impact | no - `execution.py` says so directly |
+| Partial fills | no - every order fills in full |
+| Yahoo Finance or any non-CSV source | no - `CSVDataHandler` only |
 | Calmar ratio, win rate | no |
-| Fill latency | no — see the honest accounting below |
+| Fill latency | no - see the honest accounting below |
 
 ## Honest accounting of the fill assumption
 
@@ -88,7 +88,7 @@ bt.plot_tearsheet()
 ```
 
 The constructor takes `data_handler_cls`, `execution_handler_cls`,
-`portfolio_cls`, and `strategy_cls` — classes, not instances. Pass
+`portfolio_cls`, and `strategy_cls` - classes, not instances. Pass
 `NaivePortfolio`; `Portfolio` is an abstract base and cannot be instantiated.
 The previous README got both of these wrong, so the snippet it showed could not
 run.
@@ -99,9 +99,9 @@ run.
 backtest/
   engine.py         event loop
   events.py         Market, Signal, Order, Fill
-  data.py           CSVDataHandler — ordered bar delivery
-  portfolio.py      NaivePortfolio — positions, cash, order sizing
-  execution.py      SimulatedExecutionHandler — slippage, commission
+  data.py           CSVDataHandler - ordered bar delivery
+  portfolio.py      NaivePortfolio - positions, cash, order sizing
+  execution.py      SimulatedExecutionHandler - slippage, commission
   performance.py    Sharpe, drawdown, CAGR, tearsheet
 strategies/
   moving_average.py SMA and EMA crossover
@@ -121,12 +121,12 @@ returns.
 
 The three that carry the most weight:
 
-- **`test_bars_revealed_one_at_a_time`** — after *k* updates the latest bar is
+- **`test_bars_revealed_one_at_a_time`** - after *k* updates the latest bar is
   the *k*-th, never a later one. This is the look-ahead guarantee.
-- **`test_a_flat_market_cannot_produce_profit`** — a constant price series run
+- **`test_a_flat_market_cannot_produce_profit`** - a constant price series run
   end to end must not finish above starting capital. The strongest available
   check that the accounting invents nothing.
-- **`test_cash_plus_market_value_equals_reported_total`** — an identity that
+- **`test_cash_plus_market_value_equals_reported_total`** - an identity that
   must hold on every single bar.
 
 Tests that assert a *defect* say so in the docstring and point at the
