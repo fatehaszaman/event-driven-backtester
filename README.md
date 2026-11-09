@@ -6,7 +6,7 @@ A discrete-event backtesting engine in Python. Market, signal, order, and fill
 events flow through a queue, which keeps the data, strategy, portfolio, and
 execution layers genuinely decoupled rather than decoupled in description only.
 
-74 tests. `KNOWN_ISSUES.md` lists the defects found by writing them, with
+90 tests. `KNOWN_ISSUES.md` lists the defects found by writing them, with
 severity and a fix for each: eight open, two fixed.
 
 ## What is actually implemented
@@ -21,6 +21,7 @@ severity and a fix for each: eight open, two fixed.
 | Tiered per-share commission with a notional cap | yes |
 | Orders fill at the next bar's open, with one bar of latency | yes |
 | Sharpe, max drawdown, CAGR, equity and drawdown tearsheet | yes |
+| Mean-variance optimizer with a turnover penalty (standalone module) | yes |
 
 ## What is not implemented
 
@@ -34,6 +35,7 @@ the list is kept explicit so nobody has to read the source to find out.
 | Partial fills | no - every order fills in full |
 | Yahoo Finance or any non-CSV source | no - `CSVDataHandler` only |
 | Calmar ratio, win rate | no |
+| Optimizer-driven rebalancing inside the event loop | no - `optimizer.py` is not called by the engine |
 
 ## Honest accounting of the fill assumption
 
@@ -69,6 +71,45 @@ annualized from daily returns with 252 periods and a zero risk-free rate
 Delayed entries and delayed exits both move, so the sign of the change depends
 on the strategy and on overnight gaps. The earlier results were not tradable as
 stated, and figures from before this fix should not be compared with later ones.
+
+## Portfolio construction
+
+`backtest/optimizer.py` chooses weights for n assets given expected returns
+mu, a covariance matrix Sigma and the current weights w_prev:
+
+```
+maximize    w'mu - lam * w'Sigma w - kappa * sum_i |w_i - w_prev_i|
+subject to  sum_i w_i = 1,   lower_i <= w_i <= upper_i
+```
+
+- `w'mu` is expected return, `lam` is risk aversion and `w'Sigma w` is
+  portfolio variance.
+- `kappa` is a proportional cost per unit of turnover, so a trade is made only
+  when its improvement in risk-adjusted return exceeds its cost.
+- The absolute value is made smooth by splitting each trade into buys and
+  sells, `w - w_prev = u - v` with `u, v >= 0`, which turns the problem into a
+  convex quadratic program solved with SciPy's SLSQP.
+
+With no turnover cost and no bounds the optimum has a closed form:
+
+```
+w* = Sigma^-1 mu / (2 lam) + (1 - 1'Sigma^-1 mu / (2 lam)) * Sigma^-1 1 / (1'Sigma^-1 1)
+```
+
+That is the minimum-variance portfolio plus a tilt toward `Sigma^-1 mu` that
+shrinks as `lam` rises. Rescaling `Sigma^-1 mu` to sum to one is a different
+portfolio (the tangency portfolio at a zero risk-free rate), which does not
+depend on `lam`.
+
+`ewma_covariance` gives an optional RiskMetrics-style estimate with decay
+0.94, using only the returns passed in, so it is point-in-time when the caller
+supplies data up to the decision date.
+
+Tests check the solver against the closed form, the budget and bound
+constraints, and three comparative statics: raising `kappa` never increases
+turnover, raising `lam` never increases variance, and raising one asset's
+expected return never lowers its weight. Test inputs are synthetic. The module
+is standalone; the backtest engine does not call it yet.
 
 ## Install
 
@@ -123,13 +164,14 @@ backtest/
   portfolio.py      NaivePortfolio - positions, cash, order sizing
   execution.py      SimulatedExecutionHandler - slippage, commission
   performance.py    Sharpe, drawdown, CAGR, tearsheet
+  optimizer.py      mean-variance weights with a turnover penalty, EWMA covariance
 strategies/
   moving_average.py SMA and EMA crossover
   mean_reversion.py z-score
   momentum.py       lookback momentum
 examples/
   sma_crossover.py
-tests/               74 tests
+tests/               90 tests
 KNOWN_ISSUES.md      eight open defects and two fixed, with severity and fixes
 ```
 
