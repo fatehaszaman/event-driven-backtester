@@ -10,7 +10,6 @@ more dangerous than one whose failure modes are written down.
 
 | # | Severity | Issue |
 |---|---|---|
-| 2 | **high** | Signals fill at the same bar's close (zero latency) |
 | 1 | medium | Extra market event at end of data duplicates the final bar |
 | 7 | medium | CAGR returns nan, or worse than −100%, on blown-up equity |
 | 9 | medium | Strategy position flag tracks signals, not fills |
@@ -21,25 +20,6 @@ more dangerous than one whose failure modes are written down.
 | 6 | low | Sharpe assumes a zero risk-free rate |
 
 ---
-
-### 2. Signals fill at the same bar's close — HIGH
-
-The engine drains the whole event queue within one bar, so `MARKET → SIGNAL →
-ORDER → FILL` all resolve before the next bar arrives. A signal computed from a
-bar's closing price is then filled at that same closing price.
-
-That price was not tradable at the moment it was observed. The conventional
-assumption is a fill at the next bar's open, and the difference is not neutral:
-for any momentum or crossover strategy, filling at the close that generated the
-signal is systematically favourable. Every return figure this repository
-produces is optimistic by an unmeasured amount.
-
-The README's claim of "no look-ahead bias" is true of the *data handler*, which
-does stream bars strictly in order. It is not true of *execution*.
-
-**Fix:** add a configurable fill delay defaulting to one bar, filling at the
-next bar's open.
-Test: `test_signal_and_fill_share_the_same_bar_zero_latency`
 
 ### 1. Extra market event at end of data — MEDIUM
 
@@ -91,9 +71,10 @@ Test: `test_internal_flag_tracks_signals_not_fills`
 
 ### 3. Unpriceable orders are silently discarded — MEDIUM
 
-`SimulatedExecutionHandler.execute_order` wraps the price lookup in a bare
-`except Exception: return`. A missing bar, an absent `adj close` column, or a
-typo in a symbol produces no fill, no warning, and no counter. The backtest
+`SimulatedExecutionHandler` wraps the bar lookup in `execute_order` and the
+price lookup in `on_market` in a bare `except Exception`. A missing bar, an
+absent `open`, `close` or `adj close` column, or a typo in a symbol produces no
+fill, no warning, and no counter. The backtest
 completes and reports results that omit trades the strategy intended.
 
 **Fix:** catch the specific lookup failure, count it, and surface the count in
@@ -139,6 +120,23 @@ Test: `test_sharpe_assumes_a_zero_risk_free_rate`
 ---
 
 ## Fixed
+
+### 2. Signals filled at the same bar's close (fixed)
+
+The engine drained the whole event queue within one bar, so a signal computed
+from a bar's close was filled at that same close, a price that was not
+tradable when it was observed. `SimulatedExecutionHandler` now holds each order
+until the next bar and fills it at that bar's open, scaled to the adjusted
+basis, plus slippage. Orders with no next bar are not filled and are logged.
+Re-running the strategies changed returns in both directions; see the README.
+Tests: `test_order_waits_for_the_next_bar_and_fills_at_its_open`,
+`test_signal_is_not_filled_at_the_close_it_was_computed_from`,
+`test_open_is_put_on_the_adjusted_basis`,
+`test_order_on_the_last_bar_is_not_filled_and_is_logged`,
+`test_fill_after_a_split_uses_the_fill_bar_ratio`,
+`test_fill_on_an_ex_dividend_bar_uses_the_fill_bar_ratio`,
+`test_on_bar_t_plus_1_the_fill_comes_before_new_signals`,
+`test_duplicate_final_market_event_cannot_fill_a_last_bar_order`.
 
 ### 8. Zero-volatility Sharpe guard never fired (fixed)
 

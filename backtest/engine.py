@@ -65,6 +65,11 @@ class Backtest:
                 self.num_events += 1
 
                 if event.type == EventType.MARKET:
+                    # Orders from the previous bar fill at this bar's open,
+                    # before this bar generates signals or is marked.
+                    for fill in self.execution_handler.on_market(event):
+                        self.num_events += 1
+                        self.portfolio.update_fill(fill)
                     self.strategy.calculate_signals(event)
                     self.portfolio.update_timeindex(event)
                 elif event.type == EventType.SIGNAL:
@@ -75,6 +80,8 @@ class Backtest:
                     self.portfolio.update_fill(event)
 
             time.sleep(self.heartbeat)
+
+        self.execution_handler.cancel_pending()
 
     def run(self):
         self._run_loop()

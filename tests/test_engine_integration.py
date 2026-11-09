@@ -114,3 +114,86 @@ def test_no_trade_is_ever_priced_outside_the_observed_range(ramp_dir):
         if row["RAMP"] != 0:
             implied = abs(row["RAMP"]) / 100
             assert 99.0 <= implied <= 160.0
+
+
+class _LongOnBar:
+    """Emits one LONG signal on the chosen 1-based bar and logs each call."""
+
+    def __init__(self, data_handler, events, bar=1, log=None):
+        from backtest.events import SignalEvent
+
+        self._signal = SignalEvent
+        self.data_handler = data_handler
+        self.events = events
+        self.bar = bar
+        self.log = log if log is not None else []
+        self.seen = 0
+
+    def calculate_signals(self, event):
+        bars = self.data_handler.get_latest_bars("GAP", N=10_000)
+        if len(bars) == self.seen:
+            return  # repeated final market event, no new bar
+        self.seen = len(bars)
+        self.log.append(("signals", bars[-1][0]))
+        if self.seen == self.bar:
+            self.events.put(self._signal("GAP", "LONG"))
+
+
+@pytest.fixture
+def gap_dir(tmp_path):
+    """Opens sit 0.5 below each close, so open and close fills differ."""
+    dates = pd.bdate_range("2024-01-01", periods=4)
+    closes = [100.0, 101.0, 102.0, 103.0]
+    df = pd.DataFrame(
+        {"Open": [c - 0.5 for c in closes], "High": closes, "Low": closes,
+         "Close": closes, "Adj Close": closes, "Volume": [1000] * 4},
+        index=pd.Index(dates, name="Date"),
+    )
+    df.to_csv(tmp_path / "GAP.csv")
+    return str(tmp_path), dates
+
+
+def _run_logged(csv_dir, bar):
+    log = []
+
+    class LoggedExecution(SimulatedExecutionHandler):
+        def on_market(self, event=None):
+            fills = super().on_market(event)
+            for f in fills:
+                log.append(("fill", f.timeindex))
+            return fills
+
+    bt = Backtest(
+        csv_dir=csv_dir, symbol_list=["GAP"], initial_capital=100_000.0,
+        heartbeat=0.0, start_date=None, end_date=None,
+        data_handler_cls=CSVDataHandler,
+        execution_handler_cls=LoggedExecution,
+        portfolio_cls=NaivePortfolio, strategy_cls=_LongOnBar,
+        strategy_params={"bar": bar, "log": log},
+    )
+    bt.run()
+    return bt, log
+
+
+def test_on_bar_t_plus_1_the_fill_comes_before_new_signals(gap_dir):
+    """An order from bar t fills at bar t+1's open before the strategy sees
+    bar t+1, and the t+1 holdings row is marked after that fill."""
+    csv_dir, dates = gap_dir
+    bt, log = _run_logged(csv_dir, bar=1)
+
+    assert log[:3] == [("signals", dates[0]), ("fill", dates[1]), ("signals", dates[1])]
+    row = next(r for r in bt.portfolio.all_holdings if r["datetime"] == dates[1])
+    assert bt.portfolio.all_positions[-1]["GAP"] == 100
+    assert row["cash"] == pytest.approx(100_000.0 - 100 * 100.5 - row["commission"])
+    assert row["GAP"] == pytest.approx(100 * 101.0), "marked at the t+1 close after the fill"
+
+
+def test_duplicate_final_market_event_cannot_fill_a_last_bar_order(gap_dir):
+    """KNOWN_ISSUES.md #1 re-emits the last bar. An order placed on that bar
+    must stay unfilled rather than fill at the bar's own price."""
+    csv_dir, dates = gap_dir
+    bt, log = _run_logged(csv_dir, bar=4)
+
+    assert not any(kind == "fill" for kind, _ in log)
+    assert len(bt.execution_handler.cancelled_orders) == 1
+    assert bt.portfolio.all_positions[-1]["GAP"] == 0
