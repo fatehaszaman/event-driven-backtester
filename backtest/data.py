@@ -45,7 +45,7 @@ class CSVDataHandler(DataHandler):
             path = os.path.join(self.csv_dir, f"{symbol}.csv")
             df = pd.read_csv(path, header=0, index_col=0, parse_dates=True)
             df.index = pd.to_datetime(df.index)
-            df.sort_index(inplace=True)
+            df = df.sort_index()
             if self.start_date:
                 df = df[df.index >= pd.Timestamp(self.start_date)]
             if self.end_date:

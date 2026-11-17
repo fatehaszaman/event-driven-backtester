@@ -63,6 +63,9 @@ a uniform haircut:
 | Momentum | 7.99% | 8.82% | 0.50 | 0.56 |
 | Mean reversion | 3.14% | 1.88% | 0.33 | 0.20 |
 
+Orders are 100 shares per signal at default strength, so most capital stays in
+cash. The table isolates the fill-model change, not strategy quality.
+
 Total return is cumulative over the full six years (final equity divided by
 starting capital, minus one); it is not annualized and is not CAGR. Sharpe is
 annualized from daily returns with 252 periods and a zero risk-free rate
